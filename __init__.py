@@ -160,7 +160,7 @@ class PPCVLE(Architecture):
         data_buf = ffi.new('char[]', data[0:4])
         return_code = libvle.vle_init(vle_handle, data_buf, data_len)
         decoding_success = libvle.vle_next(vle_handle, vle_instr);
-        if not decoding_success or vle_instr.name == ffi.NULL:
+        if not decoding_success or vle_instr.name == ffi.NULL or vle_instr.op_type == libvle.OP_TYPE_ILL:
             return None
         instr_name = ffi.string(vle_instr.name)
 
@@ -201,7 +201,7 @@ class PPCVLE(Architecture):
         data_buf = ffi.new('char[]', data[0:4])
         return_code = libvle.vle_init(vle_handle, data_buf, data_len)
         decoding_success = libvle.vle_next(vle_handle, vle_instr);
-        if not decoding_success or vle_instr.name == ffi.NULL:
+        if not decoding_success or vle_instr.name == ffi.NULL or vle_instr.op_type == libvle.OP_TYPE_ILL:
             return None
 
         result = InstructionInfo()
@@ -310,7 +310,8 @@ class PPCVLE(Architecture):
         elif instr_name == 'e_add2is':
             src_reg = 'r'+str(vle_instr.fields[0].value)
             il.append(il.set_reg(4, src_reg, il.add(4, il.reg(4, src_reg), il.const(4, vle_instr.fields[1].value << 16), flags=flags_to_update)))
-        elif instr_name == 'e_add16i':
+        # TODO - ensure e_addi actually is handled by this
+        elif instr_name in ['e_addi', 'e_add16i']:
             dst_reg = 'r'+str(vle_instr.fields[0].value)
             src_reg = 'r'+str(vle_instr.fields[1].value)
             il.append(il.set_reg(4, dst_reg, il.add(4, il.reg(4, src_reg), il.const(4, vle_instr.fields[2].value), flags=flags_to_update)))
@@ -327,10 +328,19 @@ class PPCVLE(Architecture):
             src_1 = 'r'+str(vle_instr.fields[1].value)
             src_2 = 'r'+str(vle_instr.fields[2].value)
             il.append(il.set_reg(4, dst_reg, il.xor_expr(4, il.reg(4, src_1), il.reg(4, src_2), flags='cr0_unsigned')))
+        elif instr_name == 'subf':
+            dst_reg = 'r'+str(vle_instr.fields[0].value)
+            src_reg = 'r'+str(vle_instr.fields[1].value)
+            src_2 = 'r'+str(vle_instr.fields[2].value)
+            il.append(il.set_reg(4, dst_reg, il.sub(4, il.reg(4, src_2), il.reg(4, src_reg))))
         elif instr_name == 'se_subf':
             dst_reg = 'r'+str(vle_instr.fields[0].value)
             src_reg = 'r'+str(vle_instr.fields[1].value)
             il.append(il.set_reg(4, dst_reg, il.sub(4, il.reg(4, src_reg), il.reg(4, dst_reg))))
+        elif instr_name == 'se_sub':
+            dst_reg = 'r'+str(vle_instr.fields[0].value)
+            src_reg = 'r'+str(vle_instr.fields[1].value)
+            il.append(il.set_reg(4, dst_reg, il.sub(4, il.reg(4, dst_reg), il.reg(4, src_reg))))
         elif instr_name == 'se_bgeni':
             dst_reg = 'r'+str(vle_instr.fields[0].value)
             constant = 0x80000000 >> vle_instr.fields[1].value
@@ -346,12 +356,26 @@ class PPCVLE(Architecture):
             base_reg = 'r'+str(vle_instr.fields[1].value)
             il.append(il.store(4, il.add(4, il.reg(4, base_reg), il.const(4, offset)),
                                il.reg(4, src_reg)))
+        elif instr_name == 'se_stb':
+            src_reg = 'r'+str(vle_instr.fields[0].value)
+            offset = vle_instr.fields[2].value
+            base_reg = 'r'+str(vle_instr.fields[1].value)
+            il.append(il.store(1, il.add(4, il.reg(4, base_reg), il.const(4, offset)),
+                               il.reg(4, src_reg)))
         elif instr_name == 'e_stmw':
             offset = vle_instr.fields[2].value
             base_reg = 'r'+str(vle_instr.fields[1].value)
             for i in range(vle_instr.fields[0].value, 32):
                 il.append(il.store(4, il.add(4, il.reg(4, base_reg), il.const(4, offset)),
                                il.reg(4, 'r'+str(i))))
+                offset = offset + 4
+        elif instr_name == 'e_lmw':
+            offset = vle_instr.fields[2].value
+            base_reg = 'r'+str(vle_instr.fields[1].value)
+            for i in range(vle_instr.fields[0].value, 32):
+                il.append(il.set_reg(4, 'r'+str(i), il.load(4, il.add(4, il.reg(4, base_reg), il.const(4, offset)))))
+                # il.append(il.store(4, il.add(4, il.reg(4, base_reg), il.const(4, offset)),
+                #                il.reg(4, 'r'+str(i))))
                 offset = offset + 4
         elif instr_name == 'e_rlwinm':
             dst_reg = 'r'+str(vle_instr.fields[0].value)
@@ -372,9 +396,15 @@ class PPCVLE(Architecture):
             reg1 = 'r'+str(vle_instr.fields[0].value)
             immed = vle_instr.fields[1].value
             il.append(il.sub(4, il.reg(4, reg1), il.const(4, immed), flags='cr0_signed'))
+        elif instr_name == 'neg':
+            dst_reg = 'r'+str(vle_instr.fields[0].value)
+            src_reg = 'r'+str(vle_instr.fields[1].value)
+            il.append(il.set_reg(4, dst_reg, il.neg_expr(4, il.reg(4, src_reg))))
+        elif instr_name == 'se_or':
+            dst_reg = 'r'+str(vle_instr.fields[0].value)
+            src_reg = 'r'+str(vle_instr.fields[1].value)
+            il.append(il.set_reg(4, dst_reg, il.or_expr(4, il.reg(4,dst_reg), il.reg(4, src_reg))))
         elif instr_name == 'se_srwi':
-            il.append(il.unimplemented())
-        elif instr_name == 'se_sub':
             il.append(il.unimplemented())
         elif instr_name == 'e_or2i':
             il.append(il.unimplemented())
