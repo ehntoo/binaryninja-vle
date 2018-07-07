@@ -335,11 +335,24 @@ class PPCVLE(Architecture):
             dst_reg = 'r'+str(vle_instr.fields[0].value)
             constant = 0x80000000 >> vle_instr.fields[1].value
             il.append(il.set_reg(4, dst_reg, il.const(4, constant)))
-        elif instr_name == 'e_lwz':
+        elif instr_name in ['e_lwz', 'se_lwz']:
             dst_reg = 'r'+str(vle_instr.fields[0].value)
             offset = vle_instr.fields[2].value
             base_reg = 'r'+str(vle_instr.fields[1].value)
             il.append(il.set_reg(4, dst_reg, il.load(4, il.add(4, il.reg(4, base_reg), il.const(4, offset)))))
+        elif instr_name in ['e_stwu', 'se_stw', 'e_stw']:
+            src_reg = 'r'+str(vle_instr.fields[0].value)
+            offset = vle_instr.fields[2].value
+            base_reg = 'r'+str(vle_instr.fields[1].value)
+            il.append(il.store(4, il.add(4, il.reg(4, base_reg), il.const(4, offset)),
+                               il.reg(4, src_reg)))
+        elif instr_name == 'e_stmw':
+            offset = vle_instr.fields[2].value
+            base_reg = 'r'+str(vle_instr.fields[1].value)
+            for i in range(vle_instr.fields[0].value, 32):
+                il.append(il.store(4, il.add(4, il.reg(4, base_reg), il.const(4, offset)),
+                               il.reg(4, 'r'+str(i))))
+                offset = offset + 4
         elif instr_name == 'e_rlwinm':
             dst_reg = 'r'+str(vle_instr.fields[0].value)
             src_reg = 'r'+str(vle_instr.fields[1].value)
@@ -350,6 +363,15 @@ class PPCVLE(Architecture):
             rotated = il.rotate_left(4, il.reg(4, src_reg), il.const(4, rotate_amt))
             masked = il.and_expr(4, rotated, il.const(4, mask))
             il.append(il.set_reg(4, dst_reg, masked))
+        elif instr_name == 'se_cmpl':
+            reg1 = 'r'+str(vle_instr.fields[0].value)
+            reg2 = 'r'+str(vle_instr.fields[1].value)
+            # TODO: Check the order of operands here to make sure I've not got them backwards
+            il.append(il.sub(4, il.reg(4, reg1), il.reg(4, reg2), flags='cr0_unsigned'))
+        elif instr_name == 'se_cmpi':
+            reg1 = 'r'+str(vle_instr.fields[0].value)
+            immed = vle_instr.fields[1].value
+            il.append(il.sub(4, il.reg(4, reg1), il.const(4, immed), flags='cr0_signed'))
         elif instr_name == 'se_srwi':
             il.append(il.unimplemented())
         elif instr_name == 'se_sub':
