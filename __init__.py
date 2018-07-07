@@ -340,6 +340,16 @@ class PPCVLE(Architecture):
             offset = vle_instr.fields[2].value
             base_reg = 'r'+str(vle_instr.fields[1].value)
             il.append(il.set_reg(4, dst_reg, il.load(4, il.add(4, il.reg(4, base_reg), il.const(4, offset)))))
+        elif instr_name == 'e_rlwinm':
+            dst_reg = 'r'+str(vle_instr.fields[0].value)
+            src_reg = 'r'+str(vle_instr.fields[1].value)
+            rotate_amt = vle_instr.fields[2].value
+            mask_start = vle_instr.fields[3].value
+            mask_end = vle_instr.fields[4].value
+            mask = ((1 << (mask_end - mask_start + 1)) - 1) << (31 - mask_end)
+            rotated = il.rotate_left(4, il.reg(4, src_reg), il.const(4, rotate_amt))
+            masked = il.and_expr(4, rotated, il.const(4, mask))
+            il.append(il.set_reg(4, dst_reg, masked))
         elif instr_name == 'se_srwi':
             il.append(il.unimplemented())
         elif instr_name == 'se_sub':
