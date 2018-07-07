@@ -142,7 +142,7 @@ class PPCVLE(Architecture):
 
             int vle_init(vle_handle* handle, const uint8_t* buffer, const uint32_t size);
             int vle_next(vle_handle* handle, vle_t* out);
-            void vle_snprint(char* str, int size, uint64_t addr, vle_t* instr);
+            void vle_snprint(char* str, int size, uint32_t addr, vle_t* instr);
             """)
         # self.ffi.compile(verbose=True)
         self.libvle = self.ffi.dlopen(os.path.join(libvle_dir, 'libvle.so'))
