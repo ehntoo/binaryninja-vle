@@ -1,0 +1,3 @@
+[submodule "libvle"]
+	path = libvle
+	url = https://github.com/wargio/libvle/
