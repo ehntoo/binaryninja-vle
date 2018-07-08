@@ -173,7 +173,7 @@ class PPCVLE(Architecture):
                 InstructionTextToken(InstructionTextTokenType.RegisterToken, 'r'+str(f)),
                 InstructionTextToken(InstructionTextTokenType.OperandSeparatorToken, ')'),
             ],
-            libvle.TYPE_JMP: lambda f, _, address: [InstructionTextToken(InstructionTextTokenType.IntegerToken, hex(f+address), f+address)],
+            libvle.TYPE_JMP: lambda f, _, address: [InstructionTextToken(InstructionTextTokenType.IntegerToken, hex((f+address) & 0xffffffff), (f+address) & 0xffffffff)],
             libvle.TYPE_CR: lambda f, _, _2: [InstructionTextToken(InstructionTextTokenType.RegisterToken, 'cr'+str(f))],
         }
 
@@ -208,15 +208,21 @@ class PPCVLE(Architecture):
         result.length = vle_instr.size
 
         if vle_instr.op_type == libvle.OP_TYPE_JMP:
-            result.add_branch(BranchType.UnconditionalBranch, vle_instr.fields[0].value + addr)
+            result.add_branch(BranchType.UnconditionalBranch, (vle_instr.fields[0].value + addr) & 0xffffffff)
         elif vle_instr.op_type == libvle.OP_TYPE_CJMP:
-            result.add_branch(BranchType.TrueBranch, vle_instr.fields[0].value + addr)
-            result.add_branch(BranchType.FalseBranch, result.length + addr)
+            if vle_instr.fields[0].type == libvle.TYPE_JMP:
+                result.add_branch(BranchType.TrueBranch, (vle_instr.fields[0].value + addr) & 0xffffffff)
+                result.add_branch(BranchType.FalseBranch, result.length + addr)
+            elif vle_instr.fields[0].type == libvle.TYPE_CR:
+                result.add_branch(BranchType.TrueBranch, (vle_instr.fields[1].value + addr) & 0xffffffff)
+                result.add_branch(BranchType.FalseBranch, result.length + addr)
+            else:
+                return None
         elif vle_instr.op_type == libvle.OP_TYPE_CALL:
-            result.add_branch(BranchType.CallDestination, vle_instr.fields[0].value + addr)
+            result.add_branch(BranchType.CallDestination, (vle_instr.fields[0].value + addr) & 0xffffffff)
         elif vle_instr.op_type == libvle.OP_TYPE_CCALL:
             result.add_branch(BranchType.FalseBranch, result.length + addr)
-            result.add_branch(BranchType.CallDestination, vle_instr.fields[0].value + addr)
+            result.add_branch(BranchType.CallDestination, (vle_instr.fields[0].value + addr) & 0xffffffff)
         elif vle_instr.op_type == libvle.OP_TYPE_RJMP:
             result.add_branch(BranchType.IndirectBranch)
         elif vle_instr.op_type == libvle.OP_TYPE_RCALL:
