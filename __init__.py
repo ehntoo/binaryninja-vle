@@ -232,7 +232,17 @@ class PPCVLE(Architecture):
         elif vle_instr.op_type == libvle.OP_TYPE_SWI:
             result.add_branch(BranchType.SystemCall)
         elif vle_instr.op_type == libvle.OP_TYPE_TRAP:
-            result.add_branch(BranchType.SystemCall)
+            result.add_branch(BranchType.FunctionReturn)
+
+        # 0x18211100
+
+
+   # 1d53a:	18 21 11 00 	e_stmvsprw 0(r1)
+   # 1d53e:	18 81 11 10 	e_stmvsrrw 16(r1)
+   # 1d5a4:	18 81 10 10 	e_ldmvsrrw 16(r1)
+   # 1d5a8:	18 21 10 00 	e_ldmvsprw 0(r1)
+        elif 'se_rfmci' == ffi.string(vle_instr.name):
+            print("Failed to pick it up as a trap?")
 
         return result
 
@@ -384,15 +394,23 @@ class PPCVLE(Architecture):
                 #                il.reg(4, 'r'+str(i))))
                 offset = offset + 4
         elif instr_name == 'e_rlwinm':
+            # print("Generating e_rlwinm")
             dst_reg = 'r'+str(vle_instr.fields[0].value)
             src_reg = 'r'+str(vle_instr.fields[1].value)
             rotate_amt = vle_instr.fields[2].value
             mask_start = vle_instr.fields[3].value
             mask_end = vle_instr.fields[4].value
-            mask = ((1 << (mask_end - mask_start + 1)) - 1) << (31 - mask_end)
-            rotated = il.rotate_left(4, il.reg(4, src_reg), il.const(4, rotate_amt))
-            masked = il.and_expr(4, rotated, il.const(4, mask))
-            il.append(il.set_reg(4, dst_reg, masked))
+            # TODO - a compiler bug can lead to seemingly nonsensical mask
+            # generation limits, which are not defined well in the spec. I need
+            # to check out what this does on real hardware.
+            # print("address: {addr_hex} dst_reg: {dst_reg}, src {src_reg}, rotate {rotate_amt}, mask_start {mask_start}, mask_end {mask_end}".format(addr_hex=hex(addr), **locals()))
+            if mask_start > mask_end:
+                il.append(il.unimplemented())
+            else:
+                mask = ((1 << (mask_end - mask_start + 1)) - 1) << (31 - mask_end)
+                rotated = il.rotate_left(4, il.reg(4, src_reg), il.const(4, rotate_amt))
+                masked = il.and_expr(4, rotated, il.const(4, mask))
+                il.append(il.set_reg(4, dst_reg, masked))
         elif instr_name == 'se_cmpl':
             reg1 = 'r'+str(vle_instr.fields[0].value)
             reg2 = 'r'+str(vle_instr.fields[1].value)
@@ -410,10 +428,24 @@ class PPCVLE(Architecture):
             dst_reg = 'r'+str(vle_instr.fields[0].value)
             src_reg = 'r'+str(vle_instr.fields[1].value)
             il.append(il.set_reg(4, dst_reg, il.or_expr(4, il.reg(4,dst_reg), il.reg(4, src_reg))))
+        elif instr_name == 'srw':
+            dst_reg = 'r'+str(vle_instr.fields[0].value)
+            shift_amt = 'r'+str(vle_instr.fields[1].value)
+            src_reg = 'r'+str(vle_instr.fields[2].value)
+            il.append(il.set_reg(4, dst_reg, il.logical_shift_right(4, il.reg(4, src_reg), il.reg(4, shift_amt))))
+        elif instr_name == 'slw':
+            dst_reg = 'r'+str(vle_instr.fields[0].value)
+            shift_amt = 'r'+str(vle_instr.fields[1].value)
+            src_reg = 'r'+str(vle_instr.fields[2].value)
+            il.append(il.set_reg(4, dst_reg, il.shift_left(4, il.reg(4, src_reg), il.reg(4, shift_amt))))
         elif instr_name == 'se_srwi':
             il.append(il.unimplemented())
         elif instr_name == 'e_or2i':
             il.append(il.unimplemented())
+        elif instr_name == 'srawi.': # this also needs implementing in libvle
+            il.append(il.unimplemented())
+
+        # 2718:	7c 00 01 46 	wrteei  0
         else:
             il.append(il.unimplemented())
         # il.append(il.unimplemented())
