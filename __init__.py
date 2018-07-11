@@ -157,7 +157,7 @@ class PPCVLE(Architecture):
                 InstructionTextToken(InstructionTextTokenType.RegisterToken, 'r'+str(f)),
                 InstructionTextToken(InstructionTextTokenType.OperandSeparatorToken, ')'),
             ],
-            libvle.TYPE_JMP: lambda f, _, address: [InstructionTextToken(InstructionTextTokenType.IntegerToken, hex((f+address) & 0xffffffff), (f+address) & 0xffffffff)],
+            libvle.TYPE_JMP: lambda f, _, address: [InstructionTextToken(InstructionTextTokenType.PossibleAddressToken, hex((f+address) & 0xffffffff), (f+address) & 0xffffffff)],
             libvle.TYPE_CR: lambda f, _, _2: [InstructionTextToken(InstructionTextTokenType.RegisterToken, 'cr'+str(f))],
         }
 
@@ -306,8 +306,12 @@ class PPCVLE(Architecture):
                 il.append(il.call(target_expr))
             else:
                 il.append(il.set_reg(4, self.link_reg, target_expr))
+        elif instr_name == 'mtctr':
+            il.append(il.set_reg(4, 'ctr', il.reg(4, 'r'+str(vle_instr.fields[1].value))))
         elif instr_name == 'se_mtctr':
             il.append(il.set_reg(4, 'ctr', il.reg(4, 'r'+str(vle_instr.fields[0].value))))
+        elif instr_name == 'mfctr':
+            il.append(il.set_reg(4, 'r'+str(vle_instr.fields[1].value), il.reg(4, 'ctr')))
         elif instr_name == 'se_mfctr':
             il.append(il.set_reg(4, 'r'+str(vle_instr.fields[0].value), il.reg(4, 'ctr')))
         elif instr_name == 'se_mflr':
@@ -326,7 +330,7 @@ class PPCVLE(Architecture):
             il.append(il.call(il.reg(4, 'ctr')))
         elif instr_name == 'e_lis':
             il.append(il.set_reg(4, 'r'+str(vle_instr.fields[0].value), il.const(4, vle_instr.fields[1].value << 16)))
-        elif instr_name == 'se_li':
+        elif instr_name in ['e_li', 'se_li']:
             il.append(il.set_reg(4, 'r'+str(vle_instr.fields[0].value), il.const(4, vle_instr.fields[1].value)))
         elif instr_name == 'se_mr':
             il.append(il.set_reg(4, 'r'+str(vle_instr.fields[0].value), il.reg(4, 'r'+str(vle_instr.fields[1].value))))
@@ -339,7 +343,7 @@ class PPCVLE(Architecture):
             dst_reg = 'r'+str(vle_instr.fields[0].value)
             src_reg = 'r'+str(vle_instr.fields[1].value)
             il.append(il.set_reg(4, dst_reg, il.add(4, il.reg(4, src_reg), il.reg(4, dst_reg))))
-        elif instr_name == 'e_add2i':
+        elif instr_name in ['e_add2i', 'se_addi']:
             src_reg = 'r'+str(vle_instr.fields[0].value)
             il.append(il.set_reg(4, src_reg, il.add(4, il.reg(4, src_reg), il.const(4, vle_instr.fields[1].value), flags=flags_to_update)))
         elif instr_name == 'e_add2is':
@@ -350,6 +354,11 @@ class PPCVLE(Architecture):
             dst_reg = 'r'+str(vle_instr.fields[0].value)
             src_reg = 'r'+str(vle_instr.fields[1].value)
             il.append(il.set_reg(4, dst_reg, il.add(4, il.reg(4, src_reg), il.const(4, vle_instr.fields[2].value), flags=flags_to_update)))
+        elif instr_name == 'mullw':
+            dst_reg = 'r'+str(vle_instr.fields[0].value)
+            src_reg = 'r'+str(vle_instr.fields[1].value)
+            src_2 = 'r'+str(vle_instr.fields[2].value)
+            il.append(il.set_reg(4, dst_reg, il.mult(4, il.reg(4, src_reg), il.reg(4, src_2))))
         elif instr_name in ['se_bge', 'se_ble', 'se_bne', 'se_bns', 'se_blt', 'se_bgt', 'se_beq', 'se_bso', 'se_bc']:
             if vle_instr.fields[0].type == libvle.TYPE_JMP:
                 branch_target = (vle_instr.fields[0].value + addr) & 0xffffffff
@@ -387,28 +396,46 @@ class PPCVLE(Architecture):
             dst_reg = 'r'+str(vle_instr.fields[0].value)
             constant = 0x80000000 >> vle_instr.fields[1].value
             il.append(il.set_reg(4, dst_reg, il.const(4, constant)))
-        elif instr_name in ['e_lwz', 'se_lwz']:
+        elif instr_name in ['e_lwz', 'e_lwzu', 'se_lwz']:
             dst_reg = 'r'+str(vle_instr.fields[0].value)
             offset = vle_instr.fields[2].value
             base_reg = 'r'+str(vle_instr.fields[1].value)
-            il.append(il.set_reg(4, dst_reg, il.load(4, il.add(4, il.reg(4, base_reg), il.const(4, offset)))))
+            effective_address = il.add(4, il.reg(4, base_reg), il.const(4, offset))
+            il.append(il.set_reg(4, dst_reg, il.load(4, effective_address)))
+            if instr_name[:-1] == 'u':
+                il.append(il.set_reg(4, il.reg(4, base_reg), effective_address))
         elif instr_name in ['e_lbz', 'e_lbzu', 'se_lbz']:
             dst_reg = 'r'+str(vle_instr.fields[0].value)
             offset = vle_instr.fields[2].value
             base_reg = 'r'+str(vle_instr.fields[1].value)
-            il.append(il.set_reg(4, dst_reg, il.zero_extend(4, il.load(1, il.add(4, il.reg(4, base_reg), il.const(4, offset))))))
+            effective_address = il.add(4, il.reg(4, base_reg), il.const(4, offset))
+            il.append(il.set_reg(4, dst_reg, il.zero_extend(4, il.load(1, effective_address))))
+            if instr_name[:-1] == 'u':
+                il.append(il.set_reg(4, il.reg(4, base_reg), effective_address))
         elif instr_name in ['e_stwu', 'se_stw', 'e_stw']:
             src_reg = 'r'+str(vle_instr.fields[0].value)
             offset = vle_instr.fields[2].value
             base_reg = 'r'+str(vle_instr.fields[1].value)
-            il.append(il.store(4, il.add(4, il.reg(4, base_reg), il.const(4, offset)),
-                               il.reg(4, src_reg)))
-        elif instr_name == 'se_stb':
+            effective_address = il.add(4, il.reg(4, base_reg), il.const(4, offset))
+            il.append(il.store(4, effective_address, il.reg(4, src_reg)))
+            if instr_name[:-1] == 'u':
+                il.append(il.set_reg(4, il.reg(4, base_reg), effective_address))
+        elif instr_name in ['e_sthu', 'se_sth', 'e_sth']:
             src_reg = 'r'+str(vle_instr.fields[0].value)
             offset = vle_instr.fields[2].value
             base_reg = 'r'+str(vle_instr.fields[1].value)
-            il.append(il.store(1, il.add(4, il.reg(4, base_reg), il.const(4, offset)),
-                               il.reg(4, src_reg)))
+            effective_address = il.add(4, il.reg(4, base_reg), il.const(4, offset))
+            il.append(il.store(2, effective_address, il.reg(4, src_reg)))
+            if instr_name[:-1] == 'u':
+                il.append(il.set_reg(4, il.reg(4, base_reg), effective_address))
+        elif instr_name in ['e_stbu', 'se_stb', 'e_stb']:
+            src_reg = 'r'+str(vle_instr.fields[0].value)
+            offset = vle_instr.fields[2].value
+            base_reg = 'r'+str(vle_instr.fields[1].value)
+            effective_address = il.add(4, il.reg(4, base_reg), il.const(4, offset))
+            il.append(il.store(1, effective_address, il.reg(4, src_reg)))
+            if instr_name[:-1] == 'u':
+                il.append(il.set_reg(4, il.reg(4, base_reg), effective_address))
         elif instr_name == 'e_stmw':
             offset = vle_instr.fields[2].value
             base_reg = 'r'+str(vle_instr.fields[1].value)
@@ -455,6 +482,11 @@ class PPCVLE(Architecture):
             dst_reg = 'r'+str(vle_instr.fields[0].value)
             src_reg = 'r'+str(vle_instr.fields[1].value)
             il.append(il.set_reg(4, dst_reg, il.neg_expr(4, il.reg(4, src_reg))))
+        elif instr_name == 'xor':
+            dst_reg = 'r'+str(vle_instr.fields[0].value)
+            src_reg = 'r'+str(vle_instr.fields[1].value)
+            src_2 = 'r'+str(vle_instr.fields[2].value)
+            il.append(il.set_reg(4, dst_reg, il.xor_expr(4, il.reg(4, src_reg), il.reg(4, src_2))))
         elif instr_name == 'se_or':
             dst_reg = 'r'+str(vle_instr.fields[0].value)
             src_reg = 'r'+str(vle_instr.fields[1].value)
@@ -464,18 +496,48 @@ class PPCVLE(Architecture):
             shift_amt = 'r'+str(vle_instr.fields[1].value)
             src_reg = 'r'+str(vle_instr.fields[2].value)
             il.append(il.set_reg(4, dst_reg, il.logical_shift_right(4, il.reg(4, src_reg), il.reg(4, shift_amt))))
+        elif instr_name == 'e_srwi':
+            dst_reg = 'r'+str(vle_instr.fields[0].value)
+            src_reg = 'r'+str(vle_instr.fields[1].value)
+            shift_amt = vle_instr.fields[2].value
+            il.append(il.set_reg(4, dst_reg, il.logical_shift_right(4, il.reg(4, src_reg), il.const(4, shift_amt))))
+        elif instr_name == 'se_srwi':
+            dst_reg = 'r'+str(vle_instr.fields[0].value)
+            src_reg = dst_reg
+            shift_amt = vle_instr.fields[1].value
+            il.append(il.set_reg(4, dst_reg, il.logical_shift_right(4, il.reg(4, src_reg), il.const(4, shift_amt))))
         elif instr_name == 'slw':
             dst_reg = 'r'+str(vle_instr.fields[0].value)
             shift_amt = 'r'+str(vle_instr.fields[1].value)
             src_reg = 'r'+str(vle_instr.fields[2].value)
             il.append(il.set_reg(4, dst_reg, il.shift_left(4, il.reg(4, src_reg), il.reg(4, shift_amt))))
-        elif instr_name == 'se_srwi':
-            il.append(il.unimplemented())
+        elif instr_name == 'e_slwi':
+            dst_reg = 'r'+str(vle_instr.fields[0].value)
+            src_reg = 'r'+str(vle_instr.fields[1].value)
+            shift_amt = vle_instr.fields[2].value
+            il.append(il.set_reg(4, dst_reg, il.shift_left(4, il.reg(4, src_reg), il.const(4, shift_amt))))
+        elif instr_name == 'se_slwi':
+            dst_reg = 'r'+str(vle_instr.fields[0].value)
+            src_reg = dst_reg
+            shift_amt = vle_instr.fields[1].value
+            il.append(il.set_reg(4, dst_reg, il.shift_left(4, il.reg(4, src_reg), il.const(4, shift_amt))))
+        elif instr_name == 'se_bclri':
+            dst_reg = 'r'+str(vle_instr.fields[0].value)
+            bit_num = vle_instr.fields[1].value
+            mask = 0xffffffff ^ (0x80000000 >> bit_num)
+            il.append(il.set_reg(4, dst_reg, il.and_expr(4, il.reg(4, dst_reg), il.const(4, mask))))
         elif instr_name == 'e_or2i':
             il.append(il.unimplemented())
         elif instr_name == 'srawi.': # this also needs implementing in libvle
             il.append(il.unimplemented())
 
+        # this should get some switch cases working
+        elif instr_name == 'e_bgt':
+            il.append(il.unimplemented())
+        elif instr_name == 'e_cmpi':
+            il.append(il.unimplemented())
+        elif instr_name == 'se_cmpli':
+            il.append(il.unimplemented())
         # 2718:	7c 00 01 46 	wrteei  0
         else:
             il.append(il.unimplemented())
