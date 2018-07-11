@@ -137,7 +137,7 @@ class PPCVLE(Architecture):
     def get_instruction_text(self, data, addr):
         ffi = self.ffi
         libvle = self.libvle
-        vle_handle = self.vle_handle
+        vle_handle = self.ffi.new('vle_handle*')
         vle_instr = ffi.new('vle_t*')
 
         data_len = len(data[0:4])
@@ -178,7 +178,9 @@ class PPCVLE(Architecture):
     def get_instruction_info(self, data, addr):
         ffi = self.ffi
         libvle = self.libvle
-        vle_handle = self.vle_handle
+        # vle_handle = self.vle_handle
+        vle_handle = self.ffi.new('vle_handle*')
+        # vle_handle = ffi.new('vle_handle*')
         vle_instr = ffi.new('vle_t*')
 
         data_len = len(data[0:4])
@@ -253,7 +255,9 @@ class PPCVLE(Architecture):
     def get_instruction_low_level_il(self, data, addr, il):
         ffi = self.ffi
         libvle = self.libvle
-        vle_handle = self.vle_handle
+        # vle_handle = self.vle_handle
+        # vle_handle = ffi.new('vle_handle*')
+        vle_handle = self.ffi.new('vle_handle*')
         vle_instr = ffi.new('vle_t*')
 
         data_len = len(data[0:4])
