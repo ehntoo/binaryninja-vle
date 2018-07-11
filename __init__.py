@@ -9,27 +9,11 @@ from binaryninja import (
     FlagRole,
     LowLevelILFlagCondition,
     log_error,
-    CallingConvention)
+    CallingConvention,
+    Platform)
 import sys
 import cffi
 import os
-
-def cond_branch(il, cond, dest):
-    t = None
-    if il[dest].operation == LowLevelILOperation.LLIL_CONST:
-        t = il.get_label_for_address(Architecture['ppc_vle'], il[dest].constant)
-    if t is None:
-        t = LowLevelILLabel()
-        indirect = True
-    else:
-        indirect = False
-    f = LowLevelILLabel()
-    il.append(il.if_expr(cond, t, f))
-    if indirect:
-        il.mark_label(t)
-        il.append(il.jump(dest))
-    il.mark_label(f)
-    return None
 
 class PPCVLE(Architecture):
     name = 'ppc_vle'
@@ -219,14 +203,14 @@ class PPCVLE(Architecture):
             else:
                 return None
         elif vle_instr.op_type == libvle.OP_TYPE_CALL:
-            result.add_branch(BranchType.CallDestination, (vle_instr.fields[0].value + addr) & 0xffffffff)
+            target = (vle_instr.fields[0].value + addr) & 0xffffffff
+            if target != addr + vle_instr.size:
+                result.add_branch(BranchType.CallDestination, target)
         elif vle_instr.op_type == libvle.OP_TYPE_CCALL:
             result.add_branch(BranchType.FalseBranch, result.length + addr)
             result.add_branch(BranchType.CallDestination, (vle_instr.fields[0].value + addr) & 0xffffffff)
         elif vle_instr.op_type == libvle.OP_TYPE_RJMP:
             result.add_branch(BranchType.IndirectBranch)
-        elif vle_instr.op_type == libvle.OP_TYPE_RCALL:
-            result.add_branch(BranchType.CallDestination)
         elif vle_instr.op_type == libvle.OP_TYPE_RET:
             result.add_branch(BranchType.FunctionReturn)
         elif vle_instr.op_type == libvle.OP_TYPE_SWI:
@@ -245,6 +229,26 @@ class PPCVLE(Architecture):
             print("Failed to pick it up as a trap?")
 
         return result
+
+    def cond_branch(self, il, cond, dest, false_addr):
+        t = None
+        if il[dest].operation == LowLevelILOperation.LLIL_CONST:
+            t = il.get_label_for_address(self, il[dest].constant)
+        if t is None:
+            t = LowLevelILLabel()
+            indirect = True
+        else:
+            indirect = False
+        f = il.get_label_for_address(self, false_addr)
+        found = f is not None
+        if not found:
+            f = LowLevelILLabel()
+        il.append(il.if_expr(cond, t, f))
+        if indirect:
+            il.mark_label(t)
+            il.append(il.jump(dest))
+        if not found:
+            il.mark_label(f)
 
     def get_instruction_low_level_il(self, data, addr, il):
         ffi = self.ffi
@@ -284,9 +288,20 @@ class PPCVLE(Architecture):
         elif vle_instr.op_type == libvle.OP_TYPE_RET:
             il.append(il.ret(il.reg(4, self.link_reg)))
         elif vle_instr.op_type == libvle.OP_TYPE_JMP:
-            il.append(il.jump(il.const_pointer(4, vle_instr.fields[0].value + addr)))
+            target = vle_instr.fields[0].value + addr
+            label = il.get_label_for_address(self, target)
+            if label is not None:
+                expr = il.goto(label)
+            else:
+                expr = il.jump(il.const_pointer(4, target))
+            il.append(expr)
         elif vle_instr.op_type == libvle.OP_TYPE_CALL:
-            il.append(il.call(il.const_pointer(4, vle_instr.fields[0].value + addr)))
+            target = (vle_instr.fields[0].value + addr) & 0xffffffff
+            target_expr = il.const_pointer(4, target)
+            if target != addr + vle_instr.size:
+                il.append(il.call(target_expr))
+            else:
+                il.append(il.set_reg(4, self.link_reg, target_expr))
         elif instr_name == 'se_mtctr':
             il.append(il.set_reg(4, 'ctr', il.reg(4, 'r'+str(vle_instr.fields[0].value))))
         elif instr_name == 'se_mfctr':
@@ -332,13 +347,17 @@ class PPCVLE(Architecture):
             src_reg = 'r'+str(vle_instr.fields[1].value)
             il.append(il.set_reg(4, dst_reg, il.add(4, il.reg(4, src_reg), il.const(4, vle_instr.fields[2].value), flags=flags_to_update)))
         elif instr_name in ['se_bge', 'se_ble', 'se_bne', 'se_bns', 'se_blt', 'se_bgt', 'se_beq', 'se_bso', 'se_bc']:
-            branch_target = il.const(4, vle_instr.fields[0].value + addr)
+            if vle_instr.fields[0].type == libvle.TYPE_JMP:
+                branch_target = (vle_instr.fields[0].value + addr) & 0xffffffff
+            elif vle_instr.fields[0].type == libvle.TYPE_CR:
+                branch_target = (vle_instr.fields[1].value + addr) & 0xffffffff
+            branch_target = il.const(4, branch_target)
             cond = il.flag_condition(libvle_cond_to_llil_cond[vle_instr.cond])
-            cond_branch(il, cond, branch_target)
+            self.cond_branch(il, cond, branch_target, addr + vle_instr.size)
         elif instr_name in ["e_bgectr", "e_blectr", "e_bnectr", "e_bnsctr", "e_bltctr", "e_bgtctr", "e_beqctr", "e_bsoctr", "e_bcctr"]:
             branch_target = il.reg(4, 'ctr')
             cond = il.flag_condition(libvle_cond_to_llil_cond[vle_instr.cond])
-            cond_branch(il, cond, branch_target)
+            self.cond_branch(il, cond, branch_target, addr + vle_instr.size)
         elif instr_name == 'e_crxor':
             dst_reg = 'r'+str(vle_instr.fields[0].value)
             src_1 = 'r'+str(vle_instr.fields[1].value)
@@ -453,3 +472,18 @@ class PPCVLE(Architecture):
         return vle_instr.size
 
 PPCVLE.register()
+
+class VleCallingConvention(CallingConvention):
+    name = 'vle-abi'
+    caller_saved_regs = ['r0', 'r2', 'r3', 'r4', 'r5', 'r6', 'r7', 'r8', 'r9', 'r10', 'r11', 'r12']
+    int_arg_regs = ['r3', 'r4', 'r5', 'r6', 'r7', 'r8', 'r9', 'r10']
+    int_return_reg = 'r3'
+
+Architecture['ppc_vle'].register_calling_convention(VleCallingConvention(Architecture['ppc_vle'], 'vle-abi'))
+
+class VlePlatform(Platform):
+    name = 'vle'
+
+platform = VlePlatform(Architecture['ppc_vle'])
+platform.default_calling_convention = Architecture['ppc_vle'].calling_conventions['vle-abi']
+platform.register('vle')
