@@ -380,6 +380,9 @@ class PPCVLE(Architecture):
             dst_reg = 'r'+str(vle_instr.fields[0].value)
             src_reg = 'r'+str(vle_instr.fields[1].value)
             il.append(il.set_reg(4, dst_reg, il.sub(4, il.reg(4, dst_reg), il.reg(4, src_reg))))
+        elif instr_name == 'se_subi':
+            dst_reg = 'r'+str(vle_instr.fields[0].value)
+            il.append(il.set_reg(4, dst_reg, il.sub(4, il.reg(4, dst_reg), il.const(4, vle_instr.fields[1].value))))
         elif instr_name == 'se_bgeni':
             dst_reg = 'r'+str(vle_instr.fields[0].value)
             constant = 0x80000000 >> vle_instr.fields[1].value
@@ -389,6 +392,11 @@ class PPCVLE(Architecture):
             offset = vle_instr.fields[2].value
             base_reg = 'r'+str(vle_instr.fields[1].value)
             il.append(il.set_reg(4, dst_reg, il.load(4, il.add(4, il.reg(4, base_reg), il.const(4, offset)))))
+        elif instr_name in ['e_lbz', 'e_lbzu', 'se_lbz']:
+            dst_reg = 'r'+str(vle_instr.fields[0].value)
+            offset = vle_instr.fields[2].value
+            base_reg = 'r'+str(vle_instr.fields[1].value)
+            il.append(il.set_reg(4, dst_reg, il.zero_extend(4, il.load(1, il.add(4, il.reg(4, base_reg), il.const(4, offset))))))
         elif instr_name in ['e_stwu', 'se_stw', 'e_stw']:
             src_reg = 'r'+str(vle_instr.fields[0].value)
             offset = vle_instr.fields[2].value
