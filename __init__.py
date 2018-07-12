@@ -550,10 +550,6 @@ class PPCVLE(Architecture):
             il.append(il.unimplemented())
 
         # this should get some switch cases working
-        elif instr_name == 'e_bgt':
-            cr = vle_instr.fields[0].value
-            reg1 = reg_field(vle_instr, 1)
-            imm = vle_instr.fields[2].value
         elif instr_name == 'e_cmpi':
             cr = vle_instr.fields[0].value
             reg1 = reg_field(vle_instr, 1)
