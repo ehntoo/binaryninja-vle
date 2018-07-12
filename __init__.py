@@ -47,6 +47,11 @@ class PPCVLE(Architecture):
 # 'invall']
     flags_written_by_flag_write_type = Architecture['ppc'].flags_written_by_flag_write_type
     flags_required_for_flag_condition = Architecture['ppc'].flags_required_for_flag_condition
+    semantic_flag_groups = Architecture['ppc'].semantic_flag_groups
+    semantic_class_for_flag_write_type = Architecture['ppc'].semantic_class_for_flag_write_type
+    semantic_flag_classes = Architecture['ppc'].semantic_flag_classes
+    flag_conditions_for_semantic_flag_group = Architecture['ppc'].flag_conditions_for_semantic_flag_group
+    # flags_required_for_semantic_flag_group = Architecture['ppc'].flags_required_for_semantic_flag_group
 
     def __init__(self):
         libvle_dir = os.path.join(os.path.dirname(__file__), 'libvle')
@@ -285,15 +290,16 @@ class PPCVLE(Architecture):
             flags_to_update = 'cr0_signed'
             instr_name = instr_name[:-1]
 
-        libvle_cond_to_llil_cond = {
-            libvle.COND_GE: LowLevelILFlagCondition.LLFC_SGE,
-            libvle.COND_LE: LowLevelILFlagCondition.LLFC_SLE,
-            libvle.COND_NE: LowLevelILFlagCondition.LLFC_NE,
-            libvle.COND_VC: LowLevelILFlagCondition.LLFC_NO,
-            libvle.COND_LT: LowLevelILFlagCondition.LLFC_SLT,
-            libvle.COND_GT: LowLevelILFlagCondition.LLFC_SGT,
-            libvle.COND_EQ: LowLevelILFlagCondition.LLFC_E,
-            libvle.COND_VS: LowLevelILFlagCondition.LLFC_O
+        libvle_cond_to_llil_flag_group = {
+            libvle.COND_GE: lambda il, cr: il.flag_group('cr%d_ge'%cr),
+            libvle.COND_LE: lambda il, cr: il.flag_group('cr%d_le'%cr),
+            libvle.COND_NE: lambda il, cr: il.flag_group('cr%d_ne'%cr),
+            # libvle.COND_VC: lambda il, cr: il.not_expr(il.flag('cr%d_so))
+            libvle.COND_VC: lambda il, cr: il.unimplemented(),
+            libvle.COND_LT: lambda il, cr: il.flag_group('cr%d_lt'%cr),
+            libvle.COND_GT: lambda il, cr: il.flag_group('cr%d_gt'%cr),
+            libvle.COND_EQ: lambda il, cr: il.flag_group('cr%d_eq'%cr),
+            libvle.COND_VS: lambda il, cr: il.unimplemented()
         }
 
         if vle_instr.op_type == libvle.OP_TYPE_SYNC:
@@ -368,17 +374,20 @@ class PPCVLE(Architecture):
             src_reg = reg_field(vle_instr, 1)
             src_2 = reg_field(vle_instr, 2)
             il.append(il.set_reg(4, dst_reg, il.mult(4, il.reg(4, src_reg), il.reg(4, src_2))))
-        elif instr_name in ['se_bge', 'se_ble', 'se_bne', 'se_bns', 'se_blt', 'se_bgt', 'se_beq', 'se_bso', 'se_bc']:
+        elif instr_name in ['se_bge', 'se_ble', 'se_bne', 'se_bns', 'se_blt', 'se_bgt', 'se_beq', 'se_bso', 'se_bc',
+                            'e_bge', 'e_ble', 'e_bne', 'e_bns', 'e_blt', 'e_bgt', 'e_beq', 'e_bso', 'e_bc',]:
+            cr = 0
             if vle_instr.fields[0].type == libvle.TYPE_JMP:
                 branch_target = (vle_instr.fields[0].value + addr) & 0xffffffff
             elif vle_instr.fields[0].type == libvle.TYPE_CR:
                 branch_target = (vle_instr.fields[1].value + addr) & 0xffffffff
             branch_target = il.const(4, branch_target)
-            cond = il.flag_condition(libvle_cond_to_llil_cond[vle_instr.cond])
+            # cond = il.flag_condition(libvle_cond_to_llil_cond[vle_instr.cond])
+            cond = libvle_cond_to_llil_flag_group[vle_instr.cond](il, cr)
             self.cond_branch(il, cond, branch_target, addr + vle_instr.size)
         elif instr_name in ["e_bgectr", "e_blectr", "e_bnectr", "e_bnsctr", "e_bltctr", "e_bgtctr", "e_beqctr", "e_bsoctr", "e_bcctr"]:
             branch_target = il.reg(4, 'ctr')
-            cond = il.flag_condition(libvle_cond_to_llil_cond[vle_instr.cond])
+            cond = libvle_cond_to_llil_flag_group[vle_instr.cond](il, 0)
             self.cond_branch(il, cond, branch_target, addr + vle_instr.size)
         elif instr_name == 'e_crxor':
             dst_reg = reg_field(vle_instr, 0)
@@ -542,11 +551,21 @@ class PPCVLE(Architecture):
 
         # this should get some switch cases working
         elif instr_name == 'e_bgt':
-            il.append(il.unimplemented())
+            cr = vle_instr.fields[0].value
+            reg1 = reg_field(vle_instr, 1)
+            imm = vle_instr.fields[2].value
         elif instr_name == 'e_cmpi':
-            il.append(il.unimplemented())
+            cr = vle_instr.fields[0].value
+            reg1 = reg_field(vle_instr, 1)
+            imm = vle_instr.fields[2].value
+            il.append(il.sub(4, il.reg(4, reg1), il.const(4, imm), flags='cr%d_signed'%cr))
+
+            # il.append(il.unimplemented())
         elif instr_name == 'se_cmpli':
-            il.append(il.unimplemented())
+            reg1 = reg_field(vle_instr, 0)
+            imm = vle_instr.fields[1].value
+            # TODO: Check the order of operands here to make sure I've not got them backwards
+            il.append(il.sub(4, il.reg(4, reg1), il.const(4, imm), flags='cr0_signed'))
         # 2718:	7c 00 01 46 	wrteei  0
         else:
             il.append(il.unimplemented())
