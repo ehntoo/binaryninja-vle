@@ -290,8 +290,6 @@ class PPCVLE(Architecture):
    # 1d53e:	18 81 11 10 	e_stmvsrrw 16(r1)
    # 1d5a4:	18 81 10 10 	e_ldmvsrrw 16(r1)
    # 1d5a8:	18 21 10 00 	e_ldmvsprw 0(r1)
-        elif 'se_rfmci' == ffi.string(vle_instr.name):
-            print("Failed to pick it up as a trap?")
 
         return result
 
@@ -355,6 +353,8 @@ class PPCVLE(Architecture):
             il.append(il.nop())
         elif vle_instr.op_type == libvle.OP_TYPE_RET:
             il.append(il.ret(il.reg(4, self.link_reg)))
+        elif vle_instr.op_type == libvle.OP_TYPE_TRAP:
+            il.append(il.ret(il.unimplemented()))
         elif vle_instr.op_type == libvle.OP_TYPE_JMP:
             target = vle_instr.fields[0].value + addr
             label = il.get_label_for_address(self, target)
@@ -469,9 +469,9 @@ class PPCVLE(Architecture):
             base_reg = reg_field(vle_instr, 1)
             effective_address = il.add(4, il.reg(4, base_reg), il.const(4, offset))
             il.append(il.set_reg(4, dst_reg, il.load(4, effective_address)))
-            if instr_name[:-1] == 'u':
-                il.append(il.set_reg(4, il.reg(4, base_reg), effective_address))
-        elif instr_name == 'lwzx':
+            if instr_name[-1] == 'u':
+                il.append(il.set_reg(4, base_reg, effective_address))
+        elif instr_name in ['lwzx', 'lwzux']:
             dst_reg = reg_field(vle_instr, 0)
             off_reg = reg_field(vle_instr, 1)
             base_reg = reg_field(vle_instr, 2)
@@ -480,38 +480,51 @@ class PPCVLE(Architecture):
                 off_expr = il.const(4, 0)
             effective_address = il.add(4, il.reg(4, base_reg), off_expr)
             il.append(il.set_reg(4, dst_reg, il.load(4, effective_address)))
+            if instr_name[-2] == 'u':
+                il.append(il.set_reg(4, off_reg, effective_address))
+        elif instr_name in ['lbzx', 'lbzux']:
+            dst_reg = reg_field(vle_instr, 0)
+            off_reg = reg_field(vle_instr, 1)
+            base_reg = reg_field(vle_instr, 2)
+            off_expr = il.reg(4, off_reg)
+            if off_reg == 'r0':
+                off_expr = il.const(4, 0)
+            effective_address = il.add(4, il.reg(4, base_reg), off_expr)
+            il.append(il.set_reg(4, dst_reg, il.zero_extend(4, il.load(1, effective_address))))
+            if instr_name[-2] == 'u':
+                il.append(il.set_reg(4, off_reg, effective_address))
         elif instr_name in ['e_lbz', 'e_lbzu', 'se_lbz']:
             dst_reg = reg_field(vle_instr, 0)
             offset = vle_instr.fields[2].value
             base_reg = reg_field(vle_instr, 1)
             effective_address = il.add(4, il.reg(4, base_reg), il.const(4, offset))
             il.append(il.set_reg(4, dst_reg, il.zero_extend(4, il.load(1, effective_address))))
-            if instr_name[:-1] == 'u':
-                il.append(il.set_reg(4, il.reg(4, base_reg), effective_address))
+            if instr_name[-1] == 'u':
+                il.append(il.set_reg(4, base_reg, effective_address))
         elif instr_name in ['e_stwu', 'se_stw', 'e_stw']:
             src_reg = reg_field(vle_instr, 0)
             offset = vle_instr.fields[2].value
             base_reg = reg_field(vle_instr, 1)
             effective_address = il.add(4, il.reg(4, base_reg), il.const(4, offset))
             il.append(il.store(4, effective_address, il.reg(4, src_reg)))
-            if instr_name[:-1] == 'u':
-                il.append(il.set_reg(4, il.reg(4, base_reg), effective_address))
+            if instr_name[-1] == 'u':
+                il.append(il.set_reg(4, base_reg, effective_address))
         elif instr_name in ['e_sthu', 'se_sth', 'e_sth']:
             src_reg = reg_field(vle_instr, 0)
             offset = vle_instr.fields[2].value
             base_reg = reg_field(vle_instr, 1)
             effective_address = il.add(4, il.reg(4, base_reg), il.const(4, offset))
             il.append(il.store(2, effective_address, il.reg(4, src_reg)))
-            if instr_name[:-1] == 'u':
-                il.append(il.set_reg(4, il.reg(4, base_reg), effective_address))
+            if instr_name[-1] == 'u':
+                il.append(il.set_reg(4, base_reg, effective_address))
         elif instr_name in ['e_stbu', 'se_stb', 'e_stb']:
             src_reg = reg_field(vle_instr, 0)
             offset = vle_instr.fields[2].value
             base_reg = reg_field(vle_instr, 1)
             effective_address = il.add(4, il.reg(4, base_reg), il.const(4, offset))
             il.append(il.store(1, effective_address, il.reg(4, src_reg)))
-            if instr_name[:-1] == 'u':
-                il.append(il.set_reg(4, il.reg(4, base_reg), effective_address))
+            if instr_name[-1] == 'u':
+                il.append(il.set_reg(4, base_reg, effective_address))
         elif instr_name == 'e_stmw':
             offset = vle_instr.fields[2].value
             base_reg = reg_field(vle_instr, 1)
@@ -563,6 +576,15 @@ class PPCVLE(Architecture):
             src_reg = reg_field(vle_instr, 1)
             src_2 = reg_field(vle_instr, 2)
             il.append(il.set_reg(4, dst_reg, il.xor_expr(4, il.reg(4, src_reg), il.reg(4, src_2))))
+            # 29f46
+        elif instr_name == 'e_andi':
+            dst_reg = reg_field(vle_instr, 0)
+            src_reg = dst_reg
+            imm = vle_instr.fields[1].value
+            if vle_instr.fields[1].type == libvle.TYPE_REG:
+                src_reg = reg_field(vle_instr, 1)
+                imm = vle_instr.fields[2].value
+            il.append(il.set_reg(4, dst_reg, il.and_expr(4, il.reg(4, src_reg), il.const(4, imm))))
         elif instr_name == 'se_or':
             dst_reg = reg_field(vle_instr, 0)
             src_reg = reg_field(vle_instr, 1)
