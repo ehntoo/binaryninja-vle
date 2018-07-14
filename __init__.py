@@ -51,7 +51,56 @@ class PPCVLE(Architecture):
     semantic_class_for_flag_write_type = Architecture['ppc'].semantic_class_for_flag_write_type
     semantic_flag_classes = Architecture['ppc'].semantic_flag_classes
     flag_conditions_for_semantic_flag_group = Architecture['ppc'].flag_conditions_for_semantic_flag_group
-    # flags_required_for_semantic_flag_group = Architecture['ppc'].flags_required_for_semantic_flag_group
+    flags_required_for_semantic_flag_group = {
+        'cr0_lt': ['lt', 'eq'],
+        'cr0_le': ['lt', 'eq'],
+        'cr0_gt': ['gt', 'eq'],
+        'cr0_ge': ['gt', 'eq'],
+        'cr0_eq': ['eq'],
+        'cr0_ne': ['eq'],
+        'cr1_lt': ['cr1_lt', 'cr1_eq'],
+        'cr1_le': ['cr1_lt', 'cr1_eq'],
+        'cr1_gt': ['cr1_gt', 'cr1_eq'],
+        'cr1_ge': ['cr1_gt', 'cr1_eq'],
+        'cr1_eq': ['cr1_eq'],
+        'cr1_ne': ['cr1_eq'],
+        'cr2_lt': ['cr2_lt', 'cr2_eq'],
+        'cr2_le': ['cr2_lt', 'cr2_eq'],
+        'cr2_gt': ['cr2_gt', 'cr2_eq'],
+        'cr2_ge': ['cr2_gt', 'cr2_eq'],
+        'cr2_eq': ['cr2_eq'],
+        'cr2_ne': ['cr2_eq'],
+        'cr3_lt': ['cr3_lt', 'cr3_eq'],
+        'cr3_le': ['cr3_lt', 'cr3_eq'],
+        'cr3_gt': ['cr3_gt', 'cr3_eq'],
+        'cr3_ge': ['cr3_gt', 'cr3_eq'],
+        'cr3_eq': ['cr3_eq'],
+        'cr3_ne': ['cr3_eq'],
+        'cr4_lt': ['cr4_lt', 'cr4_eq'],
+        'cr4_le': ['cr4_lt', 'cr4_eq'],
+        'cr4_gt': ['cr4_gt', 'cr4_eq'],
+        'cr4_ge': ['cr4_gt', 'cr4_eq'],
+        'cr4_eq': ['cr4_eq'],
+        'cr4_ne': ['cr4_eq'],
+        'cr5_lt': ['cr5_lt', 'cr5_eq'],
+        'cr5_le': ['cr5_lt', 'cr5_eq'],
+        'cr5_gt': ['cr5_gt', 'cr5_eq'],
+        'cr5_ge': ['cr5_gt', 'cr5_eq'],
+        'cr5_eq': ['cr5_eq'],
+        'cr5_ne': ['cr5_eq'],
+        'cr6_lt': ['cr6_lt', 'cr6_eq'],
+        'cr6_le': ['cr6_lt', 'cr6_eq'],
+        'cr6_gt': ['cr6_gt', 'cr6_eq'],
+        'cr6_ge': ['cr6_gt', 'cr6_eq'],
+        'cr6_eq': ['cr6_eq'],
+        'cr6_ne': ['cr6_eq'],
+        'cr7_lt': ['cr7_lt', 'cr7_eq'],
+        'cr7_le': ['cr7_lt', 'cr7_eq'],
+        'cr7_gt': ['cr7_gt', 'cr7_eq'],
+        'cr7_ge': ['cr7_gt', 'cr7_eq'],
+        'cr7_eq': ['cr7_eq'],
+        'cr7_ne': ['cr7_eq'],
+    }
 
     def __init__(self):
         libvle_dir = os.path.join(os.path.dirname(__file__), 'libvle')
@@ -287,18 +336,18 @@ class PPCVLE(Architecture):
         should_update_flags = instr_name[-1] == '.'
         flags_to_update = 'none'
         if should_update_flags:
-            flags_to_update = 'cr0_signed'
+            flags_to_update = 'cr0_unsigned'
             instr_name = instr_name[:-1]
 
         libvle_cond_to_llil_flag_group = {
-            libvle.COND_GE: lambda il, cr: il.flag_group('cr%d_ge'%cr),
-            libvle.COND_LE: lambda il, cr: il.flag_group('cr%d_le'%cr),
-            libvle.COND_NE: lambda il, cr: il.flag_group('cr%d_ne'%cr),
+            libvle.COND_GE: lambda il, cr: il.flag_group(cr*10 + 3),
+            libvle.COND_LE: lambda il, cr: il.flag_group(cr*10 + 1),
+            libvle.COND_NE: lambda il, cr: il.flag_group(cr*10 + 5),
             # libvle.COND_VC: lambda il, cr: il.not_expr(il.flag('cr%d_so))
             libvle.COND_VC: lambda il, cr: il.unimplemented(),
-            libvle.COND_LT: lambda il, cr: il.flag_group('cr%d_lt'%cr),
-            libvle.COND_GT: lambda il, cr: il.flag_group('cr%d_gt'%cr),
-            libvle.COND_EQ: lambda il, cr: il.flag_group('cr%d_eq'%cr),
+            libvle.COND_LT: lambda il, cr: il.flag_group(cr*10 + 0),
+            libvle.COND_GT: lambda il, cr: il.flag_group(cr*10 + 2),
+            libvle.COND_EQ: lambda il, cr: il.flag_group(cr*10 + 4),
             libvle.COND_VS: lambda il, cr: il.unimplemented()
         }
 
@@ -422,6 +471,15 @@ class PPCVLE(Architecture):
             il.append(il.set_reg(4, dst_reg, il.load(4, effective_address)))
             if instr_name[:-1] == 'u':
                 il.append(il.set_reg(4, il.reg(4, base_reg), effective_address))
+        elif instr_name == 'lwzx':
+            dst_reg = reg_field(vle_instr, 0)
+            off_reg = reg_field(vle_instr, 1)
+            base_reg = reg_field(vle_instr, 2)
+            off_expr = il.reg(4, off_reg)
+            if off_reg == 'r0':
+                off_expr = il.const(4, 0)
+            effective_address = il.add(4, il.reg(4, base_reg), off_expr)
+            il.append(il.set_reg(4, dst_reg, il.load(4, effective_address)))
         elif instr_name in ['e_lbz', 'e_lbzu', 'se_lbz']:
             dst_reg = reg_field(vle_instr, 0)
             offset = vle_instr.fields[2].value
@@ -495,7 +553,7 @@ class PPCVLE(Architecture):
         elif instr_name == 'se_cmpi':
             reg1 = reg_field(vle_instr, 0)
             immed = vle_instr.fields[1].value
-            il.append(il.sub(4, il.reg(4, reg1), il.const(4, immed), flags='cr0_signed'))
+            il.append(il.sub(4, il.reg(4, reg1), il.const(4, immed), flags='cr0_unsigned'))
         elif instr_name == 'neg':
             dst_reg = reg_field(vle_instr, 0)
             src_reg = reg_field(vle_instr, 1)
@@ -561,7 +619,7 @@ class PPCVLE(Architecture):
             reg1 = reg_field(vle_instr, 0)
             imm = vle_instr.fields[1].value
             # TODO: Check the order of operands here to make sure I've not got them backwards
-            il.append(il.sub(4, il.reg(4, reg1), il.const(4, imm), flags='cr0_signed'))
+            il.append(il.sub(4, il.reg(4, reg1), il.const(4, imm), flags='cr0_unsigned'))
         # 2718:	7c 00 01 46 	wrteei  0
         else:
             il.append(il.unimplemented())
