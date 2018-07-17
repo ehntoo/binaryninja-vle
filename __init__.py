@@ -20,6 +20,8 @@ import os
 #   this happens in stuff like e_lwzu and stores and things
 # Revamp flag handling to match BN's practice of flag_groups for normal PPC
 # Consider delegating to PPC arch for non-VLE encodings?
+# Properly handle "." flag updates
+# Fix b'ctr' instructions to be bdnz & co
 
 def reg_field(i, n):
     return 'r'+str(i.fields[n].value)
@@ -52,52 +54,52 @@ class PPCVLE(Architecture):
     semantic_flag_classes = Architecture['ppc'].semantic_flag_classes
     flag_conditions_for_semantic_flag_group = Architecture['ppc'].flag_conditions_for_semantic_flag_group
     flags_required_for_semantic_flag_group = {
-        'cr0_lt': ['lt', 'eq'],
-        'cr0_le': ['lt', 'eq'],
-        'cr0_gt': ['gt', 'eq'],
-        'cr0_ge': ['gt', 'eq'],
+        'cr0_lt': ['lt'],
+        'cr0_le': ['lt'],
+        'cr0_gt': ['gt'],
+        'cr0_ge': ['gt'],
         'cr0_eq': ['eq'],
         'cr0_ne': ['eq'],
-        'cr1_lt': ['cr1_lt', 'cr1_eq'],
-        'cr1_le': ['cr1_lt', 'cr1_eq'],
-        'cr1_gt': ['cr1_gt', 'cr1_eq'],
-        'cr1_ge': ['cr1_gt', 'cr1_eq'],
+        'cr1_lt': ['cr1_lt'],
+        'cr1_le': ['cr1_lt'],
+        'cr1_gt': ['cr1_gt'],
+        'cr1_ge': ['cr1_gt'],
         'cr1_eq': ['cr1_eq'],
         'cr1_ne': ['cr1_eq'],
-        'cr2_lt': ['cr2_lt', 'cr2_eq'],
-        'cr2_le': ['cr2_lt', 'cr2_eq'],
-        'cr2_gt': ['cr2_gt', 'cr2_eq'],
-        'cr2_ge': ['cr2_gt', 'cr2_eq'],
+        'cr2_lt': ['cr2_lt'],
+        'cr2_le': ['cr2_lt'],
+        'cr2_gt': ['cr2_gt'],
+        'cr2_ge': ['cr2_gt'],
         'cr2_eq': ['cr2_eq'],
         'cr2_ne': ['cr2_eq'],
-        'cr3_lt': ['cr3_lt', 'cr3_eq'],
-        'cr3_le': ['cr3_lt', 'cr3_eq'],
-        'cr3_gt': ['cr3_gt', 'cr3_eq'],
-        'cr3_ge': ['cr3_gt', 'cr3_eq'],
+        'cr3_lt': ['cr3_lt'],
+        'cr3_le': ['cr3_lt'],
+        'cr3_gt': ['cr3_gt'],
+        'cr3_ge': ['cr3_gt'],
         'cr3_eq': ['cr3_eq'],
         'cr3_ne': ['cr3_eq'],
-        'cr4_lt': ['cr4_lt', 'cr4_eq'],
-        'cr4_le': ['cr4_lt', 'cr4_eq'],
-        'cr4_gt': ['cr4_gt', 'cr4_eq'],
-        'cr4_ge': ['cr4_gt', 'cr4_eq'],
+        'cr4_lt': ['cr4_lt'],
+        'cr4_le': ['cr4_lt'],
+        'cr4_gt': ['cr4_gt'],
+        'cr4_ge': ['cr4_gt'],
         'cr4_eq': ['cr4_eq'],
         'cr4_ne': ['cr4_eq'],
-        'cr5_lt': ['cr5_lt', 'cr5_eq'],
-        'cr5_le': ['cr5_lt', 'cr5_eq'],
-        'cr5_gt': ['cr5_gt', 'cr5_eq'],
-        'cr5_ge': ['cr5_gt', 'cr5_eq'],
+        'cr5_lt': ['cr5_lt'],
+        'cr5_le': ['cr5_lt'],
+        'cr5_gt': ['cr5_gt'],
+        'cr5_ge': ['cr5_gt'],
         'cr5_eq': ['cr5_eq'],
         'cr5_ne': ['cr5_eq'],
-        'cr6_lt': ['cr6_lt', 'cr6_eq'],
-        'cr6_le': ['cr6_lt', 'cr6_eq'],
-        'cr6_gt': ['cr6_gt', 'cr6_eq'],
-        'cr6_ge': ['cr6_gt', 'cr6_eq'],
+        'cr6_lt': ['cr6_lt'],
+        'cr6_le': ['cr6_lt'],
+        'cr6_gt': ['cr6_gt'],
+        'cr6_ge': ['cr6_gt'],
         'cr6_eq': ['cr6_eq'],
         'cr6_ne': ['cr6_eq'],
-        'cr7_lt': ['cr7_lt', 'cr7_eq'],
-        'cr7_le': ['cr7_lt', 'cr7_eq'],
-        'cr7_gt': ['cr7_gt', 'cr7_eq'],
-        'cr7_ge': ['cr7_gt', 'cr7_eq'],
+        'cr7_lt': ['cr7_lt'],
+        'cr7_le': ['cr7_lt'],
+        'cr7_gt': ['cr7_gt'],
+        'cr7_ge': ['cr7_gt'],
         'cr7_eq': ['cr7_eq'],
         'cr7_ne': ['cr7_eq'],
     }
@@ -274,6 +276,8 @@ class PPCVLE(Architecture):
         elif vle_instr.op_type == libvle.OP_TYPE_CCALL:
             result.add_branch(BranchType.FalseBranch, result.length + addr)
             result.add_branch(BranchType.CallDestination, (vle_instr.fields[0].value + addr) & 0xffffffff)
+        elif vle_instr.op_type == libvle.OP_TYPE_RCALL:
+            result.add_branch(BranchType.IndirectBranch)
         elif vle_instr.op_type == libvle.OP_TYPE_RJMP:
             result.add_branch(BranchType.IndirectBranch)
         elif vle_instr.op_type == libvle.OP_TYPE_RET:
@@ -332,9 +336,9 @@ class PPCVLE(Architecture):
         instr_name = ffi.string(vle_instr.name)
 
         should_update_flags = instr_name[-1] == '.'
-        flags_to_update = 'none'
+        # flags_to_update = 'none'
         if should_update_flags:
-            flags_to_update = 'cr0_unsigned'
+        #     flags_to_update = 'cr0_unsigned'
             instr_name = instr_name[:-1]
 
         libvle_cond_to_llil_flag_group = {
@@ -409,15 +413,18 @@ class PPCVLE(Architecture):
             il.append(il.set_reg(4, dst_reg, il.add(4, il.reg(4, src_reg), il.reg(4, dst_reg))))
         elif instr_name in ['e_add2i', 'se_addi']:
             src_reg = reg_field(vle_instr, 0)
-            il.append(il.set_reg(4, src_reg, il.add(4, il.reg(4, src_reg), il.const(4, vle_instr.fields[1].value), flags=flags_to_update)))
+            il.append(il.set_reg(4, src_reg, il.add(4, il.reg(4, src_reg), il.const(4, vle_instr.fields[1].value),
+                                                    flags='cr0_unsigned' if should_update_flags else 'none')))
         elif instr_name == 'e_add2is':
             src_reg = reg_field(vle_instr, 0)
-            il.append(il.set_reg(4, src_reg, il.add(4, il.reg(4, src_reg), il.const(4, vle_instr.fields[1].value << 16), flags=flags_to_update)))
+            il.append(il.set_reg(4, src_reg, il.add(4, il.reg(4, src_reg), il.const(4, vle_instr.fields[1].value << 16),
+                                                    flags='cr0_unsigned' if should_update_flags else 'none')))
         # TODO - ensure e_addi actually is handled by this
         elif instr_name in ['e_addi', 'e_add16i']:
             dst_reg = reg_field(vle_instr, 0)
             src_reg = reg_field(vle_instr, 1)
-            il.append(il.set_reg(4, dst_reg, il.add(4, il.reg(4, src_reg), il.const(4, vle_instr.fields[2].value), flags=flags_to_update)))
+            il.append(il.set_reg(4, dst_reg, il.add(4, il.reg(4, src_reg), il.const(4, vle_instr.fields[2].value),
+                                                    flags='cr0_unsigned' if should_update_flags else 'none')))
         elif instr_name == 'mullw':
             dst_reg = reg_field(vle_instr, 0)
             src_reg = reg_field(vle_instr, 1)
@@ -509,6 +516,14 @@ class PPCVLE(Architecture):
             il.append(il.store(4, effective_address, il.reg(4, src_reg)))
             if instr_name[-1] == 'u':
                 il.append(il.set_reg(4, base_reg, effective_address))
+        elif instr_name in ['e_lhz', 'e_lhzu', 'se_lhz']:
+            dst_reg = reg_field(vle_instr, 0)
+            offset = vle_instr.fields[2].value
+            base_reg = reg_field(vle_instr, 1)
+            effective_address = il.add(4, il.reg(4, base_reg), il.const(4, offset))
+            il.append(il.set_reg(4, dst_reg, il.zero_extend(4, il.load(2, effective_address))))
+            if instr_name[-1] == 'u':
+                il.append(il.set_reg(4, base_reg, effective_address))
         elif instr_name in ['e_sthu', 'se_sth', 'e_sth']:
             src_reg = reg_field(vle_instr, 0)
             offset = vle_instr.fields[2].value
@@ -584,7 +599,13 @@ class PPCVLE(Architecture):
             if vle_instr.fields[1].type == libvle.TYPE_REG:
                 src_reg = reg_field(vle_instr, 1)
                 imm = vle_instr.fields[2].value
-            il.append(il.set_reg(4, dst_reg, il.and_expr(4, il.reg(4, src_reg), il.const(4, imm))))
+            il.append(il.set_reg(4, dst_reg, il.and_expr(4, il.reg(4, src_reg), il.const(4, imm),
+                                                    flags='cr0_unsigned' if should_update_flags else 'none')))
+        elif instr_name in ['e_and2i', 'e_and2is']:
+            dst_reg = reg_field(vle_instr, 0)
+            imm = vle_instr.fields[1].value
+            il.append(il.set_reg(4, dst_reg, il.and_expr(4, il.reg(4, dst_reg), il.const(4, imm),
+                                                    flags='cr0_unsigned')))
         elif instr_name == 'se_or':
             dst_reg = reg_field(vle_instr, 0)
             src_reg = reg_field(vle_instr, 1)
@@ -598,7 +619,8 @@ class PPCVLE(Architecture):
             dst_reg = reg_field(vle_instr, 0)
             src_reg = reg_field(vle_instr, 1)
             shift_amt = vle_instr.fields[2].value
-            il.append(il.set_reg(4, dst_reg, il.logical_shift_right(4, il.reg(4, src_reg), il.const(4, shift_amt))))
+            il.append(il.set_reg(4, dst_reg, il.logical_shift_right(4, il.reg(4, src_reg), il.const(4, shift_amt),
+                                                    flags='cr0_unsigned' if should_update_flags else 'none')))
         elif instr_name == 'se_srwi':
             dst_reg = reg_field(vle_instr, 0)
             src_reg = dst_reg
@@ -613,7 +635,8 @@ class PPCVLE(Architecture):
             dst_reg = reg_field(vle_instr, 0)
             src_reg = reg_field(vle_instr, 1)
             shift_amt = vle_instr.fields[2].value
-            il.append(il.set_reg(4, dst_reg, il.shift_left(4, il.reg(4, src_reg), il.const(4, shift_amt))))
+            il.append(il.set_reg(4, dst_reg, il.shift_left(4, il.reg(4, src_reg), il.const(4, shift_amt),
+                                                    flags='cr0_unsigned' if should_update_flags else 'none')))
         elif instr_name == 'se_slwi':
             dst_reg = reg_field(vle_instr, 0)
             src_reg = dst_reg
@@ -624,11 +647,6 @@ class PPCVLE(Architecture):
             bit_num = vle_instr.fields[1].value
             mask = 0xffffffff ^ (0x80000000 >> bit_num)
             il.append(il.set_reg(4, dst_reg, il.and_expr(4, il.reg(4, dst_reg), il.const(4, mask))))
-        elif instr_name == 'e_or2i':
-            il.append(il.unimplemented())
-        elif instr_name == 'srawi.': # this also needs implementing in libvle
-            il.append(il.unimplemented())
-
         # this should get some switch cases working
         elif instr_name == 'e_cmpi':
             cr = vle_instr.fields[0].value
@@ -643,6 +661,24 @@ class PPCVLE(Architecture):
             # TODO: Check the order of operands here to make sure I've not got them backwards
             il.append(il.sub(4, il.reg(4, reg1), il.const(4, imm), flags='cr0_unsigned'))
         # 2718:	7c 00 01 46 	wrteei  0
+        elif instr_name == 'se_bmaski':
+            dst_reg = reg_field(vle_instr, 0)
+            mask_num = vle_instr.fields[1].value
+            if mask_num == 0:
+                il.append(il.set_reg(4, dst_reg, il.const(4, 0xffffffff)))
+            else:
+                il.append(il.set_reg(4, dst_reg, il.const(4, 0xffffffff >> (32 - mask_num))))
+        elif instr_name == 'se_extzb':
+            dst_reg = reg_field(vle_instr, 0)
+            il.append(il.set_reg(4, dst_reg, il.zero_extend(4, il.reg(1, dst_reg))))
+        elif instr_name == 'se_extzh':
+            dst_reg = reg_field(vle_instr, 0)
+            il.append(il.set_reg(4, dst_reg, il.zero_extend(4, il.reg(2, dst_reg))))
+
+        elif instr_name == 'e_or2i':
+            il.append(il.unimplemented())
+        elif instr_name == 'srawi.': # this also needs implementing in libvle
+            il.append(il.unimplemented())
         else:
             il.append(il.unimplemented())
         # il.append(il.unimplemented())
