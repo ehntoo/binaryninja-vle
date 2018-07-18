@@ -430,6 +430,11 @@ class PPCVLE(Architecture):
             src_reg = reg_field(vle_instr, 1)
             src_2 = reg_field(vle_instr, 2)
             il.append(il.set_reg(4, dst_reg, il.mult(4, il.reg(4, src_reg), il.reg(4, src_2))))
+        elif instr_name == 'e_mulli':
+            dst_reg = reg_field(vle_instr, 0)
+            src_reg = reg_field(vle_instr, 1)
+            src_2 = il.const(4, vle_instr.fields[2].value)
+            il.append(il.set_reg(4, dst_reg, il.mult(4, il.reg(4, src_reg), src_2)))
         elif instr_name in ['se_bge', 'se_ble', 'se_bne', 'se_bns', 'se_blt', 'se_bgt', 'se_beq', 'se_bso', 'se_bc',
                             'e_bge', 'e_ble', 'e_bne', 'e_bns', 'e_blt', 'e_bgt', 'e_beq', 'e_bso', 'e_bc',]:
             cr = 0
