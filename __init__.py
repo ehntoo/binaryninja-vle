@@ -658,8 +658,15 @@ class PPCVLE(Architecture):
             reg1 = reg_field(vle_instr, 1)
             imm = vle_instr.fields[2].value
             il.append(il.sub(4, il.reg(4, reg1), il.const(4, imm), flags='cr%d_signed'%cr))
-
-            # il.append(il.unimplemented())
+        elif instr_name == 'e_cmpli':
+            cr = vle_instr.fields[0].value
+            reg1 = reg_field(vle_instr, 1)
+            imm = vle_instr.fields[2].value
+            il.append(il.sub(4, il.reg(4, reg1), il.const(4, imm), flags='cr%d_unsigned'%cr))
+        elif instr_name == 'e_cmpl16i':
+            reg1 = reg_field(vle_instr, 0)
+            imm = vle_instr.fields[1].value
+            il.append(il.sub(4, il.reg(4, reg1), il.const(4, imm), flags='cr0_unsigned'))
         elif instr_name == 'se_cmpli':
             reg1 = reg_field(vle_instr, 0)
             imm = vle_instr.fields[1].value
