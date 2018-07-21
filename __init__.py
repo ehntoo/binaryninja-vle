@@ -447,7 +447,9 @@ class PPCVLE(Architecture):
             cond = libvle_cond_to_llil_flag_group[vle_instr.cond](il, cr)
             self.cond_branch(il, cond, branch_target, addr + vle_instr.size)
         elif instr_name in ["e_bgectr", "e_blectr", "e_bnectr", "e_bnsctr", "e_bltctr", "e_bgtctr", "e_beqctr", "e_bsoctr", "e_bcctr"]:
-            branch_target = il.reg(4, 'ctr')
+            # branch_target = il.reg(4, 'ctr')
+            # need to add ctr subtraction semantics
+            branch_target = il.const(4,  vle_instr.fields[1].value + addr)
             cond = libvle_cond_to_llil_flag_group[vle_instr.cond](il, 0)
             self.cond_branch(il, cond, branch_target, addr + vle_instr.size)
         elif instr_name == 'e_crxor':
