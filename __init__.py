@@ -608,10 +608,15 @@ class PPCVLE(Architecture):
                 imm = vle_instr.fields[2].value
             il.append(il.set_reg(4, dst_reg, il.and_expr(4, il.reg(4, src_reg), il.const(4, imm),
                                                     flags='cr0_unsigned' if should_update_flags else 'none')))
-        elif instr_name in ['e_and2i', 'e_and2is']:
+        elif instr_name == 'e_and2i':
             dst_reg = reg_field(vle_instr, 0)
             imm = vle_instr.fields[1].value
             il.append(il.set_reg(4, dst_reg, il.and_expr(4, il.reg(4, dst_reg), il.const(4, imm),
+                                                    flags='cr0_unsigned')))
+        elif instr_name == 'e_and2is':
+            dst_reg = reg_field(vle_instr, 0)
+            imm = vle_instr.fields[1].value
+            il.append(il.set_reg(4, dst_reg, il.and_expr(4, il.reg(4, dst_reg), il.const(4, imm << 16),
                                                     flags='cr0_unsigned')))
         elif instr_name == 'se_or':
             dst_reg = reg_field(vle_instr, 0)
